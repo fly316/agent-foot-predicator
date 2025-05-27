@@ -21,6 +21,10 @@ headers = {
 
 BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 
+CHAMPIONNATS_INCLUS = [
+    "Algeria", "Germany", "Estonia", "Lithuania", "Turkey", "Uzbekistan", "Czech Republic", "Togo"
+]
+
 MATCHS_HAUT_POTENTIEL = [
     "Barcelona", "Real Madrid", "Man City", "Man United", "PSG", "Liverpool",
     "Arsenal", "Bayern Munich", "Dortmund", "Juventus", "Napoli", "Inter", "Milan"
@@ -29,6 +33,9 @@ MATCHS_HAUT_POTENTIEL = [
 def est_match_interessant(match):
     home = match['teams']['home']['name']
     away = match['teams']['away']['name']
+    league_country = match['league']['country']
+    if league_country in CHAMPIONNATS_INCLUS:
+        return True
     if any(team in home or team in away for team in MATCHS_HAUT_POTENTIEL):
         return True
     return False
@@ -52,27 +59,26 @@ def analyse_match(match):
         score_away = match['goals']['away']
         score_total = score_home + score_away
 
-        xg_simulé = 1.1  # Simulation de valeur xG élevée
-        tirs_simulés = 11  # Simulation de pression offensive
+        xg_simulé = 0.75  # Plus tolérant
+        tirs_simulés = 7  # Plus permissif
 
-        # Conditions pour OVER 0.5 HT ou but imminent en live
-        if 20 <= minute <= 44 and score_total == 0:
-            if xg_simulé >= 0.9 and tirs_simulés >= 9:
+        if 15 <= minute <= 45 and score_total == 0:
+            if xg_simulé >= 0.7 and tirs_simulés >= 7:
                 return {
                     "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
                     "minute": minute,
-                    "recommandation": "OVER 0.5 HT",
-                    "confiance": "88%",
-                    "justification": f"xG élevé, {tirs_simulés} tirs, score 0-0, minute {minute}"
+                    "recommandation": "TEST - OVER 0.5 HT",
+                    "confiance": "75%",
+                    "justification": f"xG modéré, {tirs_simulés} tirs, score 0-0, minute {minute}"
                 }
-        if 60 <= minute <= 80 and score_total <= 1:
-            if xg_simulé >= 1.7 and tirs_simulés >= 13:
+        if 55 <= minute <= 85 and score_total <= 1:
+            if xg_simulé >= 1.1 and tirs_simulés >= 9:
                 return {
                     "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
                     "minute": minute,
-                    "recommandation": "OVER 1.5 FT",
-                    "confiance": "90%",
-                    "justification": f"xG élevé, pression constante, peu de buts, opportunité value en live"
+                    "recommandation": "TEST - OVER 1.5 FT",
+                    "confiance": "78%",
+                    "justification": f"xG modéré, {tirs_simulés} tirs, score serré, pression intéressante"
                 }
     except:
         return None
@@ -86,12 +92,13 @@ if st.button("🔁 Scanner tous les matchs en direct dans le monde"):
         matches = get_live_matches()
         alertes = []
         for match in matches:
-            resultat = analyse_match(match)
-            if resultat:
-                message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
-                st.success(message)
-                bot.send_message(chat_id=CHAT_ID, text=message)
-                alertes.append(message)
+            if est_match_interessant(match):
+                resultat = analyse_match(match)
+                if resultat:
+                    message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
+                    st.success(message)
+                    bot.send_message(chat_id=CHAT_ID, text=message)
+                    alertes.append(message)
         if not alertes:
             st.info("Aucune opportunité détectée pour le moment.")
 
