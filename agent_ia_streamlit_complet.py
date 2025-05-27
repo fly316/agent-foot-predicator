@@ -25,7 +25,14 @@ BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 def get_live_matches():
     url = f"{BASE_URL}/fixtures?live=all"
     response = requests.get(url, headers=headers)
-    return response.json().get("response", [])
+    st.write(f"[DEBUG] Code réponse API : {response.status_code}")
+    try:
+        raw = response.json()
+        st.write("[DEBUG] Contenu brut de l'API:", raw)
+        return raw.get("response", [])
+    except Exception as e:
+        st.error(f"Erreur lors du décodage JSON de l'API : {e}")
+        return []
 
 def get_upcoming_matches():
     today = datetime.now().strftime('%Y-%m-%d')
