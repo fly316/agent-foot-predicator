@@ -16,11 +16,10 @@ CHAT_ID = 7147597381
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
 headers = {
-    "X-RapidAPI-Key": API_KEY,
-    "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+    "x-apisports-key": API_KEY
 }
 
-BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
+BASE_URL = "https://v3.football.api-sports.io"
 
 def get_live_matches():
     today = datetime.now().strftime('%Y-%m-%d')
