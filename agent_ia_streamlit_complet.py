@@ -69,18 +69,6 @@ def get_match_stats(fixture_id):
             return None, None
     return None, None
 
-def get_buteurs_recent(fixture_ids):
-    buteurs = []
-    for fid in fixture_ids:
-        url = f"{BASE_URL}/fixtures/events?fixture={fid}"
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            data = response.json().get("response", [])
-            for event in data:
-                if event['type'] == "Goal" and event['detail'] != "Own Goal":
-                    buteurs.append(event['player']['name'])
-    return list(set(buteurs))[:5]
-
 def get_forme_equipe(team_id):
     url = f"{BASE_URL}/fixtures?team={team_id}&last=5"
     response = requests.get(url, headers=headers)
@@ -88,16 +76,14 @@ def get_forme_equipe(team_id):
         try:
             matchs = response.json().get("response", [])
             total_buts = 0
-            fixture_ids = []
+            buteurs = []
             for m in matchs:
                 total_buts += m['goals']['for'] + m['goals']['against']
-                fixture_ids.append(m['fixture']['id'])
             moyenne_buts = total_buts / len(matchs) if matchs else 0
-            buteurs = get_buteurs_recent(fixture_ids)
-            return round(moyenne_buts, 2), buteurs
+            return round(moyenne_buts, 2)
         except:
-            return 0, []
-    return 0, []
+            return 0
+    return 0
 
 def get_effectif_match(fixture_id):
     url = f"{BASE_URL}/fixtures/lineups?fixture={fixture_id}"
@@ -124,8 +110,8 @@ def analyse_match(match):
         team_home_id = match['teams']['home']['id']
         team_away_id = match['teams']['away']['id']
 
-        forme_home, buteurs_home = get_forme_equipe(team_home_id)
-        forme_away, buteurs_away = get_forme_equipe(team_away_id)
+        forme_home = get_forme_equipe(team_home_id)
+        forme_away = get_forme_equipe(team_away_id)
         forme_moyenne = (forme_home + forme_away) / 2
 
         effectifs = get_effectif_match(fixture_id)
@@ -155,7 +141,7 @@ def analyse_match(match):
                 "minute": minute,
                 "recommandation": "OVER 0.5 HT (complet)",
                 "confiance": "88%",
-                "justification": f"Pression {pression:.1f}, forme {forme_moyenne:.2f}, xG {xg_total}, tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}\n📋 Effectif Home: {', '.join(joueurs_home)}\n📋 Effectif Away: {', '.join(joueurs_away)}\n🔥 Buteurs récents Home: {', '.join(buteurs_home)}\n🔥 Buteurs récents Away: {', '.join(buteurs_away)}"
+                "justification": f"Pression {pression:.1f}, forme {forme_moyenne:.2f}, xG {xg_total}, tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}\n📋 Effectif Home: {', '.join(joueurs_home)}\n📋 Effectif Away: {', '.join(joueurs_away)}"
             }
 
         if 55 <= minute <= 85 and score_total <= 1 and pression > seuil_ft:
@@ -164,7 +150,7 @@ def analyse_match(match):
                 "minute": minute,
                 "recommandation": "OVER 1.5 FT (complet)",
                 "confiance": "91%",
-                "justification": f"Pression {pression:.1f}, forme {forme_moyenne:.2f}, xG {xg_total}, tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}\n📋 Effectif Home: {', '.join(joueurs_home)}\n📋 Effectif Away: {', '.join(joueurs_away)}\n🔥 Buteurs récents Home: {', '.join(buteurs_home)}\n🔥 Buteurs récents Away: {', '.join(buteurs_away)}"
+                "justification": f"Pression {pression:.1f}, forme {forme_moyenne:.2f}, xG {xg_total}, tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}\n📋 Effectif Home: {', '.join(joueurs_home)}\n📋 Effectif Away: {', '.join(joueurs_away)}"
             }
     except:
         return None
