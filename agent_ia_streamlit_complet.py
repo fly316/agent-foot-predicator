@@ -23,7 +23,8 @@ headers = {
 BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 
 def get_live_matches():
-    url = f"{BASE_URL}/fixtures?live=all"
+    today = datetime.now().strftime('%Y-%m-%d')
+    url = f"{BASE_URL}/fixtures?date={today}"
     response = requests.get(url, headers=headers)
     st.write(f"[DEBUG] Code réponse API : {response.status_code}")
     try:
@@ -79,29 +80,31 @@ st.set_page_config(page_title="Agent IA Foot - Trading Sportif", page_icon="⚽"
 st.title("⚽ Agent IA - Analyse mondiale en live + alertes Telegram")
 
 if st.button("🔁 Scanner tous les matchs en direct dans le monde"):
-    with st.spinner("Chargement et analyse des matchs en cours..."):
+    with st.spinner("Chargement et analyse des matchs du jour..."):
         matches = get_live_matches()
 
         if matches:
-            st.subheader("📺 Matchs actuellement en cours")
+            st.subheader("📺 Matchs programmés aujourd'hui")
             for match in matches:
                 home = match['teams']['home']['name']
                 away = match['teams']['away']['name']
-                minute = match['fixture']['status']['elapsed']
+                status = match['fixture']['status']['short']
+                minute = match['fixture']['status'].get('elapsed', '-')
                 score_home = match['goals']['home']
                 score_away = match['goals']['away']
-                st.write(f"➡️ {home} {score_home} - {score_away} {away} ({minute}′)")
+                st.write(f"➡️ {home} {score_home} - {score_away} {away} ({status}, {minute}′)")
         else:
-            st.info("Aucun match en direct en ce moment.")
+            st.info("Aucun match trouvé aujourd'hui.")
 
         alertes = []
         for match in matches:
-            resultat = analyse_match(match)
-            if resultat:
-                message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
-                st.success(message)
-                bot.send_message(chat_id=CHAT_ID, text=message)
-                alertes.append(message)
+            if match['fixture']['status']['short'] in ["1H", "2H"]:
+                resultat = analyse_match(match)
+                if resultat:
+                    message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
+                    st.success(message)
+                    bot.send_message(chat_id=CHAT_ID, text=message)
+                    alertes.append(message)
         if not alertes:
             st.info("Aucune opportunité détectée pour le moment.")
 
