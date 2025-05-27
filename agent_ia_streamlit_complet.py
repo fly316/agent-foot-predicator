@@ -1,5 +1,5 @@
 # === AGENT IA STREAMLIT POUR TRADING SPORTIF : INTERFACE EN LIGNE ===
-# ⚙️ Interface Streamlit + Connexion API-Football + Alerte Telegram + Prévision Matchs à Venir + Analyse Mondiale
+# ⚙️ Interface Streamlit + Connexion API-Football + Alerte Telegram + Analyse Forme + Analyse Joueurs + Analyse Mondiale
 
 import requests
 import telegram
@@ -21,8 +21,8 @@ headers = {
 
 BASE_URL = "https://v3.football.api-sports.io"
 FICHIER_LOG = "historique_alertes.csv"
+mode_test = st.sidebar.checkbox("🧪 Mode test (seuils allégés)", value=False)
 
-# === CREATION DU FICHIER CSV SI ABSENT ===
 try:
     with open(FICHIER_LOG, "x", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -31,7 +31,7 @@ except FileExistsError:
     pass
 
 def log_alerte(resultat):
-    with open(FICHIER_LOG, "a", newline="", encoding="utf-8") as f:
+    with open(FICHIER_LOG, "a", newline="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -52,7 +52,7 @@ def get_live_matches():
         raw = response.json()
         return raw.get("response", [])
     except Exception as e:
-        st.error(f"Erreur lors du décodage JSON de l'API : {e}")
+        st.error(f"Erreur JSON : {e}")
         return []
 
 def get_match_stats(fixture_id):
@@ -62,12 +62,52 @@ def get_match_stats(fixture_id):
         try:
             stats = response.json().get("response", [])
             if len(stats) >= 2:
-                team1_stats = {item['type']: item['value'] for item in stats[0]['statistics']}
-                team2_stats = {item['type']: item['value'] for item in stats[1]['statistics']}
-                return team1_stats, team2_stats
+                t1 = {i['type']: i['value'] for i in stats[0]['statistics']}
+                t2 = {i['type']: i['value'] for i in stats[1]['statistics']}
+                return t1, t2
         except:
             return None, None
     return None, None
+
+def get_buteurs_recent(fixture_ids):
+    buteurs = []
+    for fid in fixture_ids:
+        url = f"{BASE_URL}/fixtures/events?fixture={fid}"
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json().get("response", [])
+            for event in data:
+                if event['type'] == "Goal" and event['detail'] != "Own Goal":
+                    buteurs.append(event['player']['name'])
+    return list(set(buteurs))[:5]
+
+def get_forme_equipe(team_id):
+    url = f"{BASE_URL}/fixtures?team={team_id}&last=5"
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        try:
+            matchs = response.json().get("response", [])
+            total_buts = 0
+            fixture_ids = []
+            for m in matchs:
+                total_buts += m['goals']['for'] + m['goals']['against']
+                fixture_ids.append(m['fixture']['id'])
+            moyenne_buts = total_buts / len(matchs) if matchs else 0
+            buteurs = get_buteurs_recent(fixture_ids)
+            return round(moyenne_buts, 2), buteurs
+        except:
+            return 0, []
+    return 0, []
+
+def get_effectif_match(fixture_id):
+    url = f"{BASE_URL}/fixtures/lineups?fixture={fixture_id}"
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        try:
+            return response.json().get("response", [])
+        except:
+            return []
+    return []
 
 def analyse_match(match):
     try:
@@ -81,6 +121,20 @@ def analyse_match(match):
         if not stats_home or not stats_away:
             return None
 
+        team_home_id = match['teams']['home']['id']
+        team_away_id = match['teams']['away']['id']
+
+        forme_home, buteurs_home = get_forme_equipe(team_home_id)
+        forme_away, buteurs_away = get_forme_equipe(team_away_id)
+        forme_moyenne = (forme_home + forme_away) / 2
+
+        effectifs = get_effectif_match(fixture_id)
+        joueurs_home = []
+        joueurs_away = []
+        if len(effectifs) >= 2:
+            joueurs_home = [p['player']['name'] for p in effectifs[0]['startXI']]
+            joueurs_away = [p['player']['name'] for p in effectifs[1]['startXI']]
+
         tirs_total = (stats_home.get("Total Shots on Goal", 0) or 0) + (stats_away.get("Total Shots on Goal", 0) or 0)
         corners_total = (stats_home.get("Corner Kicks", 0) or 0) + (stats_away.get("Corner Kicks", 0) or 0)
         attaques_dang = (stats_home.get("Attacks", 0) or 0) + (stats_away.get("Attacks", 0) or 0)
@@ -88,70 +142,29 @@ def analyse_match(match):
         xg_away = stats_away.get("Expected Goals", 0.0) or 0.0
         xg_total = round(xg_home + xg_away, 2)
 
-        pression = tirs_total * 1.5 + corners_total * 1 + attaques_dang * 0.3 + xg_total * 10
+        pression = tirs_total * 1.5 + corners_total + attaques_dang * 0.3 + xg_total * 10 + forme_moyenne * 5
 
-        if 15 <= minute <= 45 and score_total == 0 and pression > 55:
+        st.write(f"📊 {match['teams']['home']['name']} vs {match['teams']['away']['name']} | Minute {minute} | Pression : {pression:.1f} | Forme: {forme_moyenne}")
+
+        seuil_ht = 40 if mode_test else 55
+        seuil_ft = 60 if mode_test else 75
+
+        if 15 <= minute <= 45 and score_total == 0 and pression > seuil_ht:
             return {
                 "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
                 "minute": minute,
-                "recommandation": "OVER 0.5 HT (analyse avancée)",
-                "confiance": "86%",
-                "justification": f"Pression calculée : {pression:.1f} (tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}, xG {xg_total})"
+                "recommandation": "OVER 0.5 HT (complet)",
+                "confiance": "88%",
+                "justification": f"Pression {pression:.1f}, forme {forme_moyenne:.2f}, xG {xg_total}, tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}\n📋 Effectif Home: {', '.join(joueurs_home)}\n📋 Effectif Away: {', '.join(joueurs_away)}\n🔥 Buteurs récents Home: {', '.join(buteurs_home)}\n🔥 Buteurs récents Away: {', '.join(buteurs_away)}"
             }
 
-        if 55 <= minute <= 85 and score_total <= 1 and pression > 75:
+        if 55 <= minute <= 85 and score_total <= 1 and pression > seuil_ft:
             return {
                 "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
                 "minute": minute,
-                "recommandation": "OVER 1.5 FT (analyse avancée)",
-                "confiance": "90%",
-                "justification": f"Pression calculée : {pression:.1f} (tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}, xG {xg_total})"
+                "recommandation": "OVER 1.5 FT (complet)",
+                "confiance": "91%",
+                "justification": f"Pression {pression:.1f}, forme {forme_moyenne:.2f}, xG {xg_total}, tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}\n📋 Effectif Home: {', '.join(joueurs_home)}\n📋 Effectif Away: {', '.join(joueurs_away)}\n🔥 Buteurs récents Home: {', '.join(buteurs_home)}\n🔥 Buteurs récents Away: {', '.join(buteurs_away)}"
             }
     except:
         return None
-
-# === INTERFACE STREAMLIT ===
-st.set_page_config(page_title="Agent IA Foot - Trading Sportif", page_icon="⚽")
-st.title("⚽ Agent IA - Analyse mondiale en live + alertes Telegram")
-
-if st.button("🔁 Scanner tous les matchs en direct dans le monde"):
-    with st.spinner("Chargement et analyse des matchs du jour..."):
-        matches = get_live_matches()
-
-        if matches:
-            st.subheader("📺 Matchs programmés aujourd'hui")
-            for match in matches:
-                home = match['teams']['home']['name']
-                away = match['teams']['away']['name']
-                status = match['fixture']['status']['short']
-                minute = match['fixture']['status'].get('elapsed', '-')
-                score_home = match['goals']['home']
-                score_away = match['goals']['away']
-                st.write(f"➡️ {home} {score_home} - {score_away} {away} ({status}, {minute}′)")
-        else:
-            st.info("Aucun match trouvé aujourd'hui.")
-
-        alertes = []
-        for match in matches:
-            if match['fixture']['status']['short'] in ["1H", "2H"]:
-                resultat = analyse_match(match)
-                if resultat:
-                    message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
-                    st.success(message)
-                    bot.send_message(chat_id=CHAT_ID, text=message)
-                    log_alerte(resultat)
-                    alertes.append(message)
-        if not alertes:
-            st.info("Aucune opportunité détectée pour le moment.")
-
-if st.checkbox("📂 Afficher l'historique des alertes"):
-    try:
-        with open(FICHIER_LOG, newline='', encoding='utf-8') as f:
-            lignes = list(csv.reader(f))[1:]  # exclure header
-            for ligne in lignes[-10:]:
-                st.info(f"📅 {ligne[0]} | ⚽ {ligne[1]} | {ligne[2]}′ | 💡 {ligne[3]} | 🎯 {ligne[4]} | {ligne[6]}")
-    except FileNotFoundError:
-        st.warning("Aucune alerte enregistrée.")
-
-st.markdown("---")
-st.caption("Agent IA connecté à l'API-Football & Telegram | by brodyyy")
