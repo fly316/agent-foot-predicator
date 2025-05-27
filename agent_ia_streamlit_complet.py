@@ -22,25 +22,6 @@ headers = {
 
 BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
 
-CHAMPIONNATS_INCLUS = [
-    "Algeria", "Germany", "Estonia", "Lithuania", "Turkey", "Uzbekistan", "Czech Republic", "Togo"
-]
-
-MATCHS_HAUT_POTENTIEL = [
-    "Barcelona", "Real Madrid", "Man City", "Man United", "PSG", "Liverpool",
-    "Arsenal", "Bayern Munich", "Dortmund", "Juventus", "Napoli", "Inter", "Milan"
-]
-
-def est_match_interessant(match):
-    home = match['teams']['home']['name']
-    away = match['teams']['away']['name']
-    league_country = match['league']['country']
-    if league_country in CHAMPIONNATS_INCLUS:
-        return True
-    if any(team in home or team in away for team in MATCHS_HAUT_POTENTIEL):
-        return True
-    return False
-
 def get_live_matches():
     url = f"{BASE_URL}/fixtures?live=all"
     response = requests.get(url, headers=headers)
@@ -91,17 +72,29 @@ st.set_page_config(page_title="Agent IA Foot - Trading Sportif", page_icon="⚽"
 st.title("⚽ Agent IA - Analyse mondiale en live + alertes Telegram")
 
 if st.button("🔁 Scanner tous les matchs en direct dans le monde"):
-    with st.spinner("Analyse des matchs en direct à haut potentiel..."):
+    with st.spinner("Chargement et analyse des matchs en cours..."):
         matches = get_live_matches()
+
+        if matches:
+            st.subheader("📺 Matchs actuellement en cours")
+            for match in matches:
+                home = match['teams']['home']['name']
+                away = match['teams']['away']['name']
+                minute = match['fixture']['status']['elapsed']
+                score_home = match['goals']['home']
+                score_away = match['goals']['away']
+                st.write(f"➡️ {home} {score_home} - {score_away} {away} ({minute}′)")
+        else:
+            st.info("Aucun match en direct en ce moment.")
+
         alertes = []
         for match in matches:
-            if est_match_interessant(match):
-                resultat = analyse_match(match)
-                if resultat:
-                    message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
-                    st.success(message)
-                    bot.send_message(chat_id=CHAT_ID, text=message)
-                    alertes.append(message)
+            resultat = analyse_match(match)
+            if resultat:
+                message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
+                st.success(message)
+                bot.send_message(chat_id=CHAT_ID, text=message)
+                alertes.append(message)
         if not alertes:
             st.info("Aucune opportunité détectée pour le moment.")
 
@@ -110,13 +103,12 @@ if st.button("📅 Voir les matchs à venir (7 jours)"):
         matchs = get_upcoming_matches()
         count = 0
         for match in matchs:
-            if est_match_interessant(match):
-                date = match['fixture']['date'][:10]
-                equipes = f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}"
-                st.info(f"📅 {date} - ⚽ {equipes} ({match['league']['name']})")
-                count += 1
+            date = match['fixture']['date'][:10]
+            equipes = f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}"
+            st.info(f"📅 {date} - ⚽ {equipes} ({match['league']['name']})")
+            count += 1
         if count == 0:
-            st.warning("Aucun match intéressant détecté cette semaine.")
+            st.warning("Aucun match détecté cette semaine.")
 
 st.markdown("---")
 st.caption("Agent IA connecté à l'API-Football & Telegram | by brodyyy")
