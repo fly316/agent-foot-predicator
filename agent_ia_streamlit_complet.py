@@ -5,8 +5,8 @@ import requests
 import telegram
 import streamlit as st
 import time
+import csv
 from datetime import datetime, timedelta
-import random
 
 # === 1. CLES & PARAMETRES ===
 API_KEY = "4ce3808ad6b0fc8d86b0bb5a7a56713f"
@@ -20,6 +20,28 @@ headers = {
 }
 
 BASE_URL = "https://v3.football.api-sports.io"
+FICHIER_LOG = "historique_alertes.csv"
+
+# === CREATION DU FICHIER CSV SI ABSENT ===
+try:
+    with open(FICHIER_LOG, "x", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["datetime", "match", "minute", "recommandation", "confiance", "justification", "resultat"])
+except FileExistsError:
+    pass
+
+def log_alerte(resultat):
+    with open(FICHIER_LOG, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            resultat['match'],
+            resultat['minute'],
+            resultat['recommandation'],
+            resultat['confiance'],
+            resultat['justification'],
+            "🟨 en attente"
+        ])
 
 def get_live_matches():
     today = datetime.now().strftime('%Y-%m-%d')
@@ -28,7 +50,6 @@ def get_live_matches():
     st.write(f"[DEBUG] Code réponse API : {response.status_code}")
     try:
         raw = response.json()
-        st.write("[DEBUG] Contenu brut de l'API:", raw)
         return raw.get("response", [])
     except Exception as e:
         st.error(f"Erreur lors du décodage JSON de l'API : {e}")
@@ -67,26 +88,25 @@ def analyse_match(match):
         xg_away = stats_away.get("Expected Goals", 0.0) or 0.0
         xg_total = round(xg_home + xg_away, 2)
 
-        st.write(f"Analyse réelle : {match['teams']['home']['name']} vs {match['teams']['away']['name']} - {minute}′, Score: {score_home}-{score_away}, Tirs: {tirs_total}, Corners: {corners_total}, Attaques: {attaques_dang}, xG: {xg_total}")
+        pression = tirs_total * 1.5 + corners_total * 1 + attaques_dang * 0.3 + xg_total * 10
 
-        if 15 <= minute <= 45 and score_total == 0:
-            if tirs_total >= 8 or corners_total >= 6 or attaques_dang >= 40 or xg_total >= 1.2:
-                return {
-                    "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
-                    "minute": minute,
-                    "recommandation": "OVER 0.5 HT (stats réelles)",
-                    "confiance": "86%",
-                    "justification": f"Pression : {tirs_total} tirs, {corners_total} corners, {attaques_dang} attaques, xG={xg_total}"
-                }
-        if 55 <= minute <= 85 and score_total <= 1:
-            if tirs_total >= 13 or corners_total >= 9 or attaques_dang >= 70 or xg_total >= 2.1:
-                return {
-                    "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
-                    "minute": minute,
-                    "recommandation": "OVER 1.5 FT (stats réelles)",
-                    "confiance": "90%",
-                    "justification": f"Intensité : {tirs_total} tirs, {corners_total} corners, {attaques_dang} attaques, xG={xg_total}"
-                }
+        if 15 <= minute <= 45 and score_total == 0 and pression > 55:
+            return {
+                "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
+                "minute": minute,
+                "recommandation": "OVER 0.5 HT (analyse avancée)",
+                "confiance": "86%",
+                "justification": f"Pression calculée : {pression:.1f} (tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}, xG {xg_total})"
+            }
+
+        if 55 <= minute <= 85 and score_total <= 1 and pression > 75:
+            return {
+                "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
+                "minute": minute,
+                "recommandation": "OVER 1.5 FT (analyse avancée)",
+                "confiance": "90%",
+                "justification": f"Pression calculée : {pression:.1f} (tirs {tirs_total}, corners {corners_total}, attaques {attaques_dang}, xG {xg_total})"
+            }
     except:
         return None
 
@@ -119,21 +139,19 @@ if st.button("🔁 Scanner tous les matchs en direct dans le monde"):
                     message = f"⚽ {resultat['match']}\n⏱ Minute : {resultat['minute']}\n💡 Recommandation : {resultat['recommandation']}\n🎯 Confiance : {resultat['confiance']}\n📌 {resultat['justification']}"
                     st.success(message)
                     bot.send_message(chat_id=CHAT_ID, text=message)
+                    log_alerte(resultat)
                     alertes.append(message)
         if not alertes:
             st.info("Aucune opportunité détectée pour le moment.")
 
-if st.button("📅 Voir les matchs à venir (7 jours)"):
-    with st.spinner("Chargement des matchs à venir..."):
-        matchs = get_upcoming_matches()
-        count = 0
-        for match in matchs:
-            date = match['fixture']['date'][:10]
-            equipes = f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}"
-            st.info(f"📅 {date} - ⚽ {equipes} ({match['league']['name']})")
-            count += 1
-        if count == 0:
-            st.warning("Aucun match détecté cette semaine.")
+if st.checkbox("📂 Afficher l'historique des alertes"):
+    try:
+        with open(FICHIER_LOG, newline='', encoding='utf-8') as f:
+            lignes = list(csv.reader(f))[1:]  # exclure header
+            for ligne in lignes[-10:]:
+                st.info(f"📅 {ligne[0]} | ⚽ {ligne[1]} | {ligne[2]}′ | 💡 {ligne[3]} | 🎯 {ligne[4]} | {ligne[6]}")
+    except FileNotFoundError:
+        st.warning("Aucune alerte enregistrée.")
 
 st.markdown("---")
 st.caption("Agent IA connecté à l'API-Football & Telegram | by brodyyy")
