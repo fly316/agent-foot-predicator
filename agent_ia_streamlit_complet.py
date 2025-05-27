@@ -6,6 +6,7 @@ import telegram
 import streamlit as st
 import time
 from datetime import datetime, timedelta
+import random
 
 # === 1. CLES & PARAMETRES ===
 API_KEY = "4ce3808ad6b0fc8d86b0bb5a7a56713f"
@@ -59,8 +60,10 @@ def analyse_match(match):
         score_away = match['goals']['away']
         score_total = score_home + score_away
 
-        xg_simulé = 0.75  # Plus tolérant
-        tirs_simulés = 7  # Plus permissif
+        xg_simulé = round(random.uniform(0.5, 2.5), 2)
+        tirs_simulés = random.randint(5, 18)
+
+        st.write(f"Analyse de : {match['teams']['home']['name']} vs {match['teams']['away']['name']} - {minute}′, score {score_home}-{score_away}, xG: {xg_simulé}, tirs: {tirs_simulés}")
 
         if 15 <= minute <= 45 and score_total == 0:
             if xg_simulé >= 0.7 and tirs_simulés >= 7:
