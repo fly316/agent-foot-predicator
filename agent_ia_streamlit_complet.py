@@ -34,12 +34,19 @@ def get_live_matches():
         st.error(f"Erreur lors du décodage JSON de l'API : {e}")
         return []
 
-def get_upcoming_matches():
-    today = datetime.now().strftime('%Y-%m-%d')
-    in_seven_days = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-    url = f"{BASE_URL}/fixtures?from={today}&to={in_seven_days}"
+def get_match_stats(fixture_id):
+    url = f"{BASE_URL}/fixtures/statistics?fixture={fixture_id}"
     response = requests.get(url, headers=headers)
-    return response.json().get("response", [])
+    if response.status_code == 200:
+        try:
+            stats = response.json().get("response", [])
+            if len(stats) >= 2:
+                team1_stats = {item['type']: item['value'] for item in stats[0]['statistics']}
+                team2_stats = {item['type']: item['value'] for item in stats[1]['statistics']}
+                return team1_stats, team2_stats
+        except:
+            return None, None
+    return None, None
 
 def analyse_match(match):
     try:
@@ -47,29 +54,38 @@ def analyse_match(match):
         score_home = match['goals']['home']
         score_away = match['goals']['away']
         score_total = score_home + score_away
+        fixture_id = match['fixture']['id']
 
-        xg_simulé = round(random.uniform(0.5, 2.5), 2)
-        tirs_simulés = random.randint(5, 18)
+        stats_home, stats_away = get_match_stats(fixture_id)
+        if not stats_home or not stats_away:
+            return None
 
-        st.write(f"Analyse de : {match['teams']['home']['name']} vs {match['teams']['away']['name']} - {minute}′, score {score_home}-{score_away}, xG: {xg_simulé}, tirs: {tirs_simulés}")
+        tirs_total = (stats_home.get("Total Shots on Goal", 0) or 0) + (stats_away.get("Total Shots on Goal", 0) or 0)
+        corners_total = (stats_home.get("Corner Kicks", 0) or 0) + (stats_away.get("Corner Kicks", 0) or 0)
+        attaques_dang = (stats_home.get("Attacks", 0) or 0) + (stats_away.get("Attacks", 0) or 0)
+        xg_home = stats_home.get("Expected Goals", 0.0) or 0.0
+        xg_away = stats_away.get("Expected Goals", 0.0) or 0.0
+        xg_total = round(xg_home + xg_away, 2)
+
+        st.write(f"Analyse réelle : {match['teams']['home']['name']} vs {match['teams']['away']['name']} - {minute}′, Score: {score_home}-{score_away}, Tirs: {tirs_total}, Corners: {corners_total}, Attaques: {attaques_dang}, xG: {xg_total}")
 
         if 15 <= minute <= 45 and score_total == 0:
-            if xg_simulé >= 0.7 and tirs_simulés >= 7:
+            if tirs_total >= 8 or corners_total >= 6 or attaques_dang >= 40 or xg_total >= 1.2:
                 return {
                     "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
                     "minute": minute,
-                    "recommandation": "TEST - OVER 0.5 HT",
-                    "confiance": "75%",
-                    "justification": f"xG modéré, {tirs_simulés} tirs, score 0-0, minute {minute}"
+                    "recommandation": "OVER 0.5 HT (stats réelles)",
+                    "confiance": "86%",
+                    "justification": f"Pression : {tirs_total} tirs, {corners_total} corners, {attaques_dang} attaques, xG={xg_total}"
                 }
         if 55 <= minute <= 85 and score_total <= 1:
-            if xg_simulé >= 1.1 and tirs_simulés >= 9:
+            if tirs_total >= 13 or corners_total >= 9 or attaques_dang >= 70 or xg_total >= 2.1:
                 return {
                     "match": f"{match['teams']['home']['name']} vs {match['teams']['away']['name']}",
                     "minute": minute,
-                    "recommandation": "TEST - OVER 1.5 FT",
-                    "confiance": "78%",
-                    "justification": f"xG modéré, {tirs_simulés} tirs, score serré, pression intéressante"
+                    "recommandation": "OVER 1.5 FT (stats réelles)",
+                    "confiance": "90%",
+                    "justification": f"Intensité : {tirs_total} tirs, {corners_total} corners, {attaques_dang} attaques, xG={xg_total}"
                 }
     except:
         return None
